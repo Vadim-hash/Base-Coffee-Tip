@@ -1,177 +1,64 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Base Coffee Tip Jar</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; background: #0b0f19; color: #f3f4f6; }
-    h1 { color: #0052ff; }
-    .card { background: #161e2e; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #273549; }
-    input, textarea, button { width: 100%; box-sizing: border-box; margin-top: 10px; padding: 10px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #fff; }
-    button { background: #0052ff; border: none; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-    button:hover { background: #003ebd; }
-    .memo { border-bottom: 1px solid #273549; padding: 10px 0; }
-    .memo:last-child { border-bottom: none; }
-    .meta { font-size: 0.85em; color: #9ca3af; }
-  </style>
-</head>
-<body>
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-  <h1>☕ Угостить кофе на Base</h1>
-  
-  <div class="card">
-    <button id="connectBtn" onclick="connectWallet()">Подключить кошелек</button>
-    <p id="walletAddress" class="meta" style="margin-top: 10px; word-break: break-all;"></p>
-  </div>
+contract BuyMeACoffee {
+    // Событие для отслеживания новых записей
+    event NewMemo(
+        address indexed from,
+        uint256 timestamp,
+        string name,
+        string message,
+        uint256 amount
+    );
 
-  <div class="card">
-    <h3>Оставить сообщение</h3>
-    <input type="text" id="nameInput" placeholder="Твое имя или ник">
-    <textarea id="messageInput" rows="3" placeholder="Твое сообщение..."></textarea>
-    <input type="number" id="amountInput" step="0.0001" placeholder="Сумма в ETH (например, 0.001)">
-    <button onclick="sendTip()">Отправить в Base</button>
-  </div>
-
-  <div class="card">
-    <h3>Гостевая книга</h3>
-    <div id="memosList">Загрузка сообщений...</div>
-  </div>
-
-  <script>
-    
-    const CONTRACT_ADDRESS = "0x278fe495A3Ab892B5C80Af481f7082323ce56652";
-
-    const CONTRACT_ABI = [
-      "function buyCoffee(string _name, string _message) external payable",
-      "function getMemos() external view returns (tuple(address from, uint256 timestamp, string name, string message, uint256 amount)[])"
-    ];
-
-    let provider;
-    let signer;
-    let contract;
-
-    async function connectWallet() {
-      if (!window.ethereum) {
-        alert("Установите Web3-кошелек (MetaMask, Rabby, Coinbase Wallet)!");
-        return;
-      }
-
-      // Автоматическое переключение на сеть Base (Chain ID 8453 = 0x2105 в hex)
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x2105" }]
-        });
-      } catch (switchError) {
-        // Если сеть Base еще не добавлена в MetaMask, отправляем запрос на добавление
-        if (switchError.code === 4902) {
-          try {
-            await window.ethereum.request({
-              method: "wallet_addEthereumChain",
-              params: [{
-                chainId: "0x2105",
-                chainName: "Base",
-                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-                rpcUrls: ["https://mainnet.base.org"],
-                blockExplorerUrls: ["https://basescan.org"]
-              }]
-            });
-          } catch (addError) {
-            console.error("Ошибка при добавлении сети Base:", addError);
-            return;
-          }
-        } else {
-          console.error("Ошибка при переключении сети:", switchError);
-          return;
-        }
-      }
-
-      provider = new ethers.BrowserProvider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      signer = await provider.getSigner();
-      const address = await signer.getAddress();
-      
-      document.getElementById("connectBtn").innerText = "Подключено";
-      document.getElementById("walletAddress").innerText = "Адрес: " + address;
-
-      if (CONTRACT_ADDRESS.startsWith("0x") && CONTRACT_ADDRESS.length === 42) {
-        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-        loadMemos();
-      }
+    struct Memo {
+        address from;
+        uint256 timestamp;
+        string name;
+        string message;
+        uint256 amount;
     }
 
-    async function sendTip() {
-      if (!contract) {
-        alert("Сначала подключите кошелек!");
-        return;
-      }
+    address payable public immutable owner;
+    Memo[] private memos;
 
-      const name = document.getElementById("nameInput").value || "Аноним";
-      const message = document.getElementById("messageInput").value;
-      const amount = document.getElementById("amountInput").value;
-
-      if (!message || !amount) {
-        alert("Заполните сообщение и сумму");
-        return;
-      }
-
-      try {
-        const tx = await contract.buyCoffee(name, message, {
-          value: ethers.parseEther(amount)
-        });
-        alert("Транзакция отправлена в Base: " + tx.hash);
-        await tx.wait();
-        alert("Успешно подтверждено!");
-        
-        document.getElementById("messageInput").value = "";
-        loadMemos();
-      } catch (err) {
-        console.error(err);
-        alert("Ошибка: " + (err.reason || err.message));
-      }
+    constructor() {
+        owner = payable(msg.sender);
     }
 
-    async function loadMemos() {
-      if (!CONTRACT_ADDRESS.startsWith("0x") || CONTRACT_ADDRESS.length !== 42) {
-        document.getElementById("memosList").innerHTML = "<p class='meta'>Укажите корректный адрес контракта в коде.</p>";
-        return;
-      }
+    /**
+     * @dev Оставить чаевые и сообщение
+     * @param _name Имя отправителя
+     * @param _message Сообщение
+     */
+    function buyCoffee(string calldata _name, string calldata _message) external payable {
+        require(msg.value > 0, unicode"Чаевые должны быть больше 0 ETH");
 
-      try {
-        const readProvider = provider || new ethers.JsonRpcProvider("https://mainnet.base.org");
-        const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, readProvider);
-        
-        const memos = await readContract.getMemos();
-        const listDiv = document.getElementById("memosList");
-        
-        if (memos.length === 0) {
-          listDiv.innerHTML = "<p class='meta'>Пока нет сообщений. Будьте первым!</p>";
-          return;
-        }
+        memos.push(Memo(
+            msg.sender,
+            block.timestamp,
+            _name,
+            _message,
+            msg.value
+        ));
 
-        listDiv.innerHTML = "";
-        for (let i = memos.length - 1; i >= 0; i--) {
-          const m = memos[i];
-          const date = new Date(Number(m.timestamp) * 1000).toLocaleString();
-          const ethVal = ethers.formatEther(m.amount);
+        emit NewMemo(
+            msg.sender,
+            block.timestamp,
+            _name,
+            _message,
+            msg.value
+        );
 
-          const item = document.createElement("div");
-          item.className = "memo";
-          item.innerHTML = `
-            <strong>${m.name}</strong> 
-            <span class="meta">(${ethVal} ETH • ${date})</span>
-            <p style="margin: 6px 0 0 0;">${m.message}</p>
-          `;
-          listDiv.appendChild(item);
-        }
-      } catch (err) {
-        console.error("Ошибка загрузки записей:", err);
-      }
+        // Переводим средства владельцу контракта
+        (bool success, ) = owner.call{value: msg.value}("");
+        require(success, unicode"Не удалось перевести средства");
     }
 
-    window.addEventListener("load", loadMemos);
-  </script>
-</body>
-</html>
+    /**
+     * @dev Получить все оставленные сообщения
+     */
+    function getMemos() external view returns (Memo[] memory) {
+        return memos;
+    }
+}
